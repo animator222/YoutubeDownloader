@@ -31,8 +31,9 @@ Gallery / Photos app.
 
 ## Getting the APK
 
-Every push builds the app on GitHub Actions (**Actions → Build APK → Artifacts**). Pushing a tag such
-as `v1.0.0` also attaches the APKs to a GitHub Release.
+Download the latest APK from the repository's **Releases** page. Every push also builds the app on
+GitHub Actions (**Actions → Build APK → Artifacts**). To publish a new release, push a tag such as
+`v1.0.1`, or run **Actions → Build APK → Run workflow** and enter a release tag.
 
 Pick the APK that matches your phone:
 
