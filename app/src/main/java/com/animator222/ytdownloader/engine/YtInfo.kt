@@ -21,14 +21,15 @@ object YtInfo {
     }
 
     suspend fun fetch(context: Context, url: String): VideoDetails {
-        Engine.ensureReady(context)
-        Engine.awaitIdle()
+        Engine.prepare(context)
         val request = YoutubeDLRequest(url)
             .addOption("--dump-single-json")
             .addOption("--no-playlist")
             .addOption("--no-warnings")
-        val response = runInterruptible(Dispatchers.IO) {
-            YoutubeDL.getInstance().execute(request, null, false, null)
+        val response = Engine.use {
+            runInterruptible(Dispatchers.IO) {
+                YoutubeDL.getInstance().execute(request, null, false, null)
+            }
         }
         val out = response.out
         val start = out.indexOf('{')
@@ -45,6 +46,8 @@ object YtInfo {
             when {
                 it.contains("Sign in to confirm", true) ->
                     "YouTube asked for a sign-in check. Try again later or update the engine from the menu."
+                it.contains("HTTP Error 403", true) ->
+                    "YouTube refused the download (HTTP 403). Update the engine from the ⋮ menu and try again."
                 it.contains("Private video", true) -> "This video is private."
                 it.contains("not a valid URL", true) || it.contains("Unsupported URL", true) ->
                     "That doesn't look like a YouTube link."
@@ -178,8 +181,13 @@ object YtInfo {
                 else -> f.size
             }
             val fpsLabel = if (f.fps > 30) "${f.fps}" else ""
+            val sameQuality = if (f.height > 0) "[height<=${f.height}]" else ""
             options += QualityOption(
-                selector = if (merged) "${f.id}+bestaudio[ext=m4a]/${f.id}+bestaudio/${f.id}" else f.id,
+                selector = if (merged) {
+                    "${f.id}+bestaudio[ext=m4a]/${f.id}+bestaudio/bv*$sameQuality+ba[ext=m4a]/bv*$sameQuality+ba/b$sameQuality"
+                } else {
+                    "${f.id}/b$sameQuality/bv*$sameQuality+ba"
+                },
                 title = "${f.resolution}p$fpsLabel" + if (f.hdr) " HDR" else "",
                 subtitle = listOfNotNull(
                     if (merged) "MP4" else f.ext.uppercase(),
@@ -198,7 +206,7 @@ object YtInfo {
                 .sortedWith(compareByDescending<Fmt> { it.ext == "m4a" }.thenByDescending { it.abr })
                 .forEach { f ->
                     options += QualityOption(
-                        selector = f.id,
+                        selector = "${f.id}/ba[ext=${f.ext}]/ba",
                         title = "Audio ${f.abr.roundToInt()} kbps",
                         subtitle = if (f.ext == "webm") "WEBM (Opus)" else f.ext.uppercase(),
                         audio = AudioState.AUDIO_ONLY,

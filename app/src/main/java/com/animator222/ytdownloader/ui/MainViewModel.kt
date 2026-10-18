@@ -11,7 +11,6 @@ import com.animator222.ytdownloader.engine.Engine
 import com.animator222.ytdownloader.engine.QualityOption
 import com.animator222.ytdownloader.engine.VideoDetails
 import com.animator222.ytdownloader.engine.YtInfo
-import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,11 +48,9 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
             try {
                 Engine.ensureReady(app)
                 _state.update { it.copy(engineVersion = Engine.version(app)) }
-                // Never swap yt-dlp out from under a running download.
-                if (!DownloadQueue.hasActive(app)) {
-                    Engine.update(app, force = false)
-                    _state.update { it.copy(engineVersion = Engine.version(app)) }
-                }
+                // Bring yt-dlp up to date right away so the first fetch doesn't wait for it.
+                Engine.prepare(app)
+                _state.update { it.copy(engineVersion = Engine.version(app)) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -130,8 +127,8 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
             _state.update { it.copy(engineBusy = true) }
             val message = try {
                 when (Engine.update(app, force = true)) {
-                    YoutubeDL.UpdateStatus.ALREADY_UP_TO_DATE -> "Engine is already up to date."
-                    else -> "Engine updated to ${Engine.version(app)}."
+                    Engine.UpdateResult.UPDATED -> "Engine updated to yt-dlp ${Engine.version(app)}."
+                    else -> "Engine is up to date (yt-dlp ${Engine.version(app)})."
                 }
             } catch (e: CancellationException) {
                 throw e

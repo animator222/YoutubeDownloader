@@ -48,8 +48,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
             // the download still runs, just without the guaranteed foreground priority.
         }
         publish(-1f, "Preparing…")
-        Engine.ensureReady(applicationContext)
-        Engine.awaitIdle()
+        Engine.prepare(applicationContext)
 
         val root = applicationContext.getExternalFilesDir("jobs") ?: File(applicationContext.filesDir, "jobs")
         val workDir = File(root, jobId).apply {
@@ -58,23 +57,37 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
         }
         DownloadControl.register(jobId, workDir)
         try {
-            var useAria2c = inputData.getBoolean(KEY_TURBO, true) && !isLive
-            var error: Throwable? = null
-            while (true) {
-                error = try {
-                    runYtDlp(url, format, workDir, useAria2c)
-                    null
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Throwable) {
-                    e
+            val turbo = inputData.getBoolean(KEY_TURBO, true) && !isLive
+            val attempts = buildList {
+                if (turbo) add(Attempt(useAria2c = true, playerClient = null, label = null))
+                add(Attempt(useAria2c = false, playerClient = null, label = "Retrying with standard downloader…"))
+                if (!isLive) {
+                    // YouTube answers some player clients with HTTP 403; ask as a different one.
+                    for (client in FALLBACK_CLIENTS) {
+                        add(Attempt(useAria2c = false, playerClient = client, label = "Retrying via another YouTube client…"))
+                    }
                 }
-                if (error == null || DownloadControl.isStopRequested(jobId) || !useAria2c) break
-                // aria2c was refused (e.g. HTTP 403); retry with yt-dlp's own downloader.
-                useAria2c = false
-                stage = 0
-                workDir.listFiles()?.forEach { it.deleteRecursively() }
-                publish(-1f, "Retrying with standard downloader…")
+            }
+            val error: Throwable? = Engine.use {
+                var failure: Throwable? = null
+                for ((index, attempt) in attempts.withIndex()) {
+                    if (index > 0) {
+                        stage = 0
+                        synchronized(recentLines) { recentLines.clear() }
+                        workDir.listFiles()?.forEach { it.deleteRecursively() }
+                        attempt.label?.let { publish(-1f, it, force = true) }
+                    }
+                    failure = try {
+                        runYtDlp(url, format, workDir, attempt)
+                        null
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        e
+                    }
+                    if (failure == null || DownloadControl.isStopRequested(jobId)) break
+                }
+                failure
             }
 
             val stopped = DownloadControl.isStopRequested(jobId)
@@ -117,7 +130,9 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
         }
     }
 
-    private suspend fun runYtDlp(url: String, format: String, workDir: File, useAria2c: Boolean) {
+    private data class Attempt(val useAria2c: Boolean, val playerClient: String?, val label: String?)
+
+    private suspend fun runYtDlp(url: String, format: String, workDir: File, attempt: Attempt) {
         val request = YoutubeDLRequest(url).apply {
             addOption("-f", format)
             addOption("-o", File(workDir, "%(title).100B [%(id)s].%(ext)s").absolutePath)
@@ -134,10 +149,11 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
                     addOption("--hls-use-mpegts")
                     addOption("--no-part")
                 }
-                useAria2c -> addOption("--downloader", "libaria2c.so")
+                attempt.useAria2c -> addOption("--downloader", "libaria2c.so")
                 // Chunked requests avoid YouTube's per-connection throttling.
                 else -> addOption("--http-chunk-size", "10M")
             }
+            attempt.playerClient?.let { addOption("--extractor-args", "youtube:player_client=$it") }
             if (!isAudio && !isLive) {
                 addOption("--merge-output-format", "mp4")
                 addOption("--remux-video", "mp4")
@@ -251,6 +267,8 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
         const val KEY_OUT_MIME = "out_mime"
         const val KEY_OUT_NAME = "out_name"
         const val KEY_ERROR = "error"
+
+        private val FALLBACK_CLIENTS = listOf("visionos", "tv")
 
         private val mediaExtensions = setOf("mp4", "mkv", "webm", "m4a", "mp3", "opus", "ogg", "aac", "ts", "mov", "3gp")
         private val intermediateRegex = Regex("""\.f[0-9][\w-]*\.\w+$""")

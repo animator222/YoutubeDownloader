@@ -25,6 +25,23 @@ sleep 10
 echo "pid: $(adb shell pidof $PKG)"
 echo "::endgroup::"
 
+echo "::group::Engine version"
+sleep 30
+tap_desc() {
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+  local b
+  b=$(adb shell cat /sdcard/ui.xml | tr '>' '\n' | grep "content-desc=\"$1\"" | grep -o 'bounds="[^"]*"' | head -1)
+  [ -z "$b" ] && return 1
+  read -r x1 y1 x2 y2 <<<"$(echo "$b" | grep -o '[0-9]\+' | tr '\n' ' ')"
+  adb shell input tap $(( (x1 + x2) / 2 )) $(( (y1 + y2) / 2 ))
+}
+if tap_desc Menu; then
+  sleep 2
+  dump_ui | grep -i "yt-dlp"
+  adb shell input keyevent KEYCODE_BACK
+fi
+echo "::endgroup::"
+
 echo "::group::Share link"
 adb shell am start -a android.intent.action.SEND -t text/plain \
   --es android.intent.extra.TEXT "$URL" -n $PKG/.MainActivity
