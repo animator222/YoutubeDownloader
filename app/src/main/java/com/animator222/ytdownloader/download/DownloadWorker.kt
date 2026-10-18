@@ -104,7 +104,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
             )
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             val reason = e.message ?: e.javaClass.simpleName
             Notifications.failed(applicationContext, jobId, title, reason)
             return Result.failure(errorData(reason))

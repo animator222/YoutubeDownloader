@@ -56,7 +56,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 // Offline or GitHub unreachable: keep using the bundled yt-dlp.
             }
         }
@@ -88,7 +88,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 _state.update { it.copy(loading = false, error = YtInfo.friendlyError(e)) }
             }
         }
@@ -135,7 +135,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 "Update failed: ${e.message}"
             }
             _state.update { it.copy(engineBusy = false, message = message, engineVersion = Engine.version(app)) }
